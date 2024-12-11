@@ -1,0 +1,6 @@
+dash
+pandas
+geopandas
+plotly
+numpy
+gunicorn  # Optional: Required for deployment on platforms like Heroku or Render
