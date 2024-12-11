@@ -1,12 +1,9 @@
-# Install required libraries
+# Import necessary libraries
 import dash
 from dash import dcc, html
 import pandas as pd
 import geopandas as gpd
-import plotly.express as px
 import plotly.graph_objects as go
-import seaborn as sns
-import matplotlib.pyplot as plt
 import numpy as np
 
 # File paths
@@ -55,56 +52,56 @@ merged_data = merged_data.merge(self_exposure, on='country', how='left')
 # Step 6: Merge with shapefile data for mapping
 world = world.merge(merged_data, left_on='ADM0_A3', right_on='country', how='left')
 
-# Step 7: Create the Dash App
+# Step 7: Prepare data for visualization
+world['quantity_market_share_clean'] = world['quantity_market_share'].replace([np.inf, -np.inf], np.nan).fillna(0).apply(lambda x: max(x, 0))
+
+# Step 8: Create the Dash App
 app = dash.Dash(__name__)
 
-# Choropleth map visualization
-choropleth_fig = px.choropleth(
-    world,
-    geojson=world.geometry,
-    locations=world.index,
-    color='eci_trade',
-    color_continuous_scale='Viridis',
-    title='Economic Complexity Index (ECI) and Trade Indicators by Country',
-    hover_name='ADM0_A3',
-    hover_data={
-        'eci_trade': True,
-        'quantity_market_share': ':.4f',
-        'self_exposure': ':.4f'
-    }
-)
+# Base map
+def create_choropleth(z_data, title):
+    return go.Figure(
+        go.Choropleth(
+            locations=world['ADM0_A3'],
+            z=z_data,
+            text=world['ADM0_A3'],
+            hoverinfo='text+z',
+            geo='geo',
+            colorbar=dict(title=title, thickness=15, x=0.85, y=0.5)
+        )
+    )
 
-# Add bubble markers for trade values and exposure
-world['quantity_market_share_clean'] = world['quantity_market_share'].replace([np.inf, -np.inf], np.nan).fillna(0).apply(lambda x: max(x, 0))
-choropleth_fig.add_trace(go.Scattergeo(
-    lon=world.geometry.centroid.x,
-    lat=world.geometry.centroid.y,
-    mode='markers',
-    marker=dict(
-        size=world['quantity_market_share_clean'] * 10,
-        color=world['self_exposure'],
-        colorscale='Reds',
-        showscale=True,
-        colorbar=dict(title="Self-Exposure"),
-        opacity=0.8,
-        line=dict(width=1, color='black')
-    ),
-    text=world.apply(
-        lambda row: f"Country: {row['ADM0_A3']}<br>Trade Value: {row['quantity_market_share_clean']:.4f}<br>Exposure: {row['self_exposure']:.4f}",
-        axis=1
-    ),
-    hoverinfo='text'
-))
-
-# App layout
+# Create dropdown interactivity
 app.layout = html.Div([
     html.H1("Economic Complexity, Trade, and Exposure Visualization"),
-    dcc.Graph(
-        id="choropleth",
-        figure=choropleth_fig
-    )
+    dcc.Dropdown(
+        id="metric-selector",
+        options=[
+            {"label": "Economic Complexity Index (ECI)", "value": "eci_trade"},
+            {"label": "Trade Value (Market Share)", "value": "quantity_market_share_clean"},
+            {"label": "Self Exposure", "value": "self_exposure"}
+        ],
+        value="eci_trade",
+        clearable=False
+    ),
+    dcc.Graph(id="choropleth-map")
 ])
+
+# Callback to update the map based on dropdown selection
+@app.callback(
+    dash.dependencies.Output("choropleth-map", "figure"),
+    [dash.dependencies.Input("metric-selector", "value")]
+)
+def update_map(selected_metric):
+    title_mapping = {
+        "eci_trade": "Economic Complexity Index (ECI)",
+        "quantity_market_share_clean": "Trade Value (Market Share)",
+        "self_exposure": "Self Exposure"
+    }
+    title = title_mapping[selected_metric]
+    return create_choropleth(world[selected_metric], title)
 
 # Run the app
 if __name__ == "__main__":
     app.run_server(debug=True, host="0.0.0.0", port=8050)
+
